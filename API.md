@@ -142,25 +142,28 @@ GET /projects/{projectId}/workitems/{workItemId}
 
 ### Create work item
 ```
-POST /projects/{projectId}/workitems
+POST /projects/{projectId}/workitems?boardId={boardId}
 ```
 ```json
 {
-  "boardId": 7,
   "title": "Implement leaderboard",
+  "importanceLevelId": 3,
   "description": "Optional details",
+  "isStory": false,
+  "parentStoryId": 7,
   "categoryId": 3,
   "stageId": 4,
   "assignedUserId": 5,
   "estimatedTime": 4,
   "dueDate": "2026-05-01",
-  "tags": ["feature", "backend"],
-  "priorityId": 3
+  "tags": ["feature", "backend"]
 }
 ```
 
-Required: `boardId`, `title`.
-`priorityId` values: `0` None · `1` Low · `2` Medium · `3` High · `4` Critical.
+Required: `boardId` (query param), `title`, `importanceLevelId`.
+`importanceLevelId` values: `1` Urgent · `2` High · `3` Normal · `4` Low (use `list_importance_levels` to get project-specific values).
+`isStory`: `true` for user stories, `false` for tasks (default).
+`parentStoryId`: ID of the parent story when creating a sub-task.
 `estimatedTime` is in hours.
 
 ### Update work item
@@ -179,6 +182,17 @@ All fields are optional. Same fields as create, plus:
 DELETE /projects/{projectId}/workitems/{workItemId}
 ```
 Returns `204 No Content`.
+
+---
+
+## Importance Levels
+
+### List importance levels
+```
+GET /projects/{projectId}/importancelevels
+```
+
+Returns project-specific importance levels with their IDs. Use `importanceLevelId` when creating or updating work items.
 
 ---
 
@@ -234,8 +248,8 @@ curl -H "Authorization: ApiKey $HACKNPLAN_API_KEY" \
 curl -X POST \
   -H "Authorization: ApiKey $HACKNPLAN_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"boardId": 7, "title": "Fix collision bug", "priorityId": 3}' \
-  https://api.hacknplan.com/v0/projects/42/workitems
+  -d '{"title": "Fix collision bug", "importanceLevelId": 3}' \
+  "https://api.hacknplan.com/v0/projects/42/workitems?boardId=7"
 
 # Mark a work item complete
 curl -X PATCH \

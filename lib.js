@@ -210,6 +210,8 @@ export const TOOLS = [
         boardId: { type: "number" },
         title: { type: "string" },
         description: { type: "string" },
+        isStory: { type: "boolean", description: "True for user stories, false for tasks (default false)" },
+        parentStoryId: { type: "number", description: "ID of the parent story (for sub-tasks)" },
         categoryId: { type: "number" },
         stageId: { type: "number" },
         assignedUserId: { type: "number" },
@@ -220,9 +222,9 @@ export const TOOLS = [
           items: { type: "string" },
           description: "List of tag strings",
         },
-        priorityId: {
+        importanceLevelId: {
           type: "number",
-          description: "Priority: 0=None, 1=Low, 2=Medium, 3=High, 4=Critical",
+          description: "Importance: 1=Urgent, 2=High, 3=Normal (default), 4=Low",
         },
       },
     },
@@ -277,6 +279,18 @@ export const TOOLS = [
   {
     name: "list_stages",
     description: "List workflow stages in a project",
+    inputSchema: {
+      type: "object",
+      required: ["projectId"],
+      properties: {
+        projectId: { type: "number" },
+      },
+    },
+  },
+  // ── Importance Levels ─────────────────────────────────────────────────────
+  {
+    name: "list_importance_levels",
+    description: "List importance levels in a project (used as importanceLevelId when creating work items)",
     inputSchema: {
       type: "object",
       required: ["projectId"],
@@ -365,8 +379,9 @@ export async function handleTool(name, args) {
     case "get_work_item":
       return hnpRequest(`/projects/${args.projectId}/workitems/${args.workItemId}`);
     case "create_work_item": {
-      const { projectId, ...body } = args;
-      return hnpRequest(`/projects/${projectId}/workitems`, "POST", body);
+      const { projectId, boardId, ...body } = args;
+      if (!body.importanceLevelId) body.importanceLevelId = 3;
+      return hnpRequest(`/projects/${projectId}/workitems?boardId=${boardId}`, "POST", body);
     }
     case "update_work_item": {
       const { projectId, workItemId, ...body } = args;
@@ -377,6 +392,10 @@ export async function handleTool(name, args) {
         `/projects/${args.projectId}/workitems/${args.workItemId}`,
         "DELETE"
       );
+
+    // Importance Levels
+    case "list_importance_levels":
+      return hnpRequest(`/projects/${args.projectId}/importancelevels`);
 
     // Categories
     case "list_categories":

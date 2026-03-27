@@ -304,15 +304,29 @@ describe("create_work_item", () => {
     assert.equal(lastURL().pathname, "/v0/projects/42/workitems");
   });
 
-  it("puts boardId in the request body, not the query string", async () => {
+  it("sends boardId as a query param", async () => {
     await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Fix bug" });
-    assert.equal(lastBody().boardId, 7);
-    assert.equal(lastURL().searchParams.get("boardId"), null);
+    assert.equal(lastURL().searchParams.get("boardId"), "7");
+  });
+
+  it("does not include boardId in the request body", async () => {
+    await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Fix bug" });
+    assert.equal(lastBody().boardId, undefined);
   });
 
   it("puts title in the request body", async () => {
     await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Fix bug" });
     assert.equal(lastBody().title, "Fix bug");
+  });
+
+  it("defaults importanceLevelId to 3 when not provided", async () => {
+    await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Task" });
+    assert.equal(lastBody().importanceLevelId, 3);
+  });
+
+  it("uses provided importanceLevelId", async () => {
+    await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Task", importanceLevelId: 1 });
+    assert.equal(lastBody().importanceLevelId, 1);
   });
 
   it("forwards all optional fields in the body", async () => {
@@ -321,23 +335,27 @@ describe("create_work_item", () => {
       boardId: 2,
       title: "Task",
       description: "Details",
+      isStory: true,
+      parentStoryId: 5,
       categoryId: 3,
       stageId: 4,
       assignedUserId: 5,
       estimatedTime: 2,
       dueDate: "2026-04-01",
       tags: ["bug", "urgent"],
-      priorityId: 3,
+      importanceLevelId: 2,
     });
     const body = lastBody();
     assert.equal(body.description, "Details");
+    assert.equal(body.isStory, true);
+    assert.equal(body.parentStoryId, 5);
     assert.equal(body.categoryId, 3);
     assert.equal(body.stageId, 4);
     assert.equal(body.assignedUserId, 5);
     assert.equal(body.estimatedTime, 2);
     assert.equal(body.dueDate, "2026-04-01");
     assert.deepEqual(body.tags, ["bug", "urgent"]);
-    assert.equal(body.priorityId, 3);
+    assert.equal(body.importanceLevelId, 2);
   });
 
   it("does not include projectId in body", async () => {
@@ -428,6 +446,18 @@ describe("delete_work_item", () => {
   it("returns null for 204 response", async () => {
     const result = await handleTool("delete_work_item", { projectId: 1, workItemId: 5 });
     assert.equal(result, null);
+  });
+});
+
+// ── Importance Levels ────────────────────────────────────────────────────────
+
+describe("list_importance_levels", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/importancelevels", async () => {
+    await handleTool("list_importance_levels", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/importancelevels");
   });
 });
 
