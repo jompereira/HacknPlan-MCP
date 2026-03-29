@@ -329,7 +329,12 @@ describe("create_work_item", () => {
     assert.equal(lastBody().importanceLevelId, 1);
   });
 
-  it("forwards all optional fields in the body", async () => {
+  it("forwards all optional fields in the POST body", async () => {
+    const requests = [];
+    globalThis.fetch = async (url, opts) => {
+      requests.push({ url, opts });
+      return { ok: true, status: 200, json: async () => ({ workItemId: 1 }) };
+    };
     await handleTool("create_work_item", {
       projectId: 1,
       boardId: 2,
@@ -345,12 +350,11 @@ describe("create_work_item", () => {
       tags: ["bug", "urgent"],
       importanceLevelId: 2,
     });
-    const body = lastBody();
+    const body = JSON.parse(requests[0].opts.body);
     assert.equal(body.description, "Details");
     assert.equal(body.isStory, true);
     assert.equal(body.parentStoryId, 5);
     assert.equal(body.categoryId, 3);
-    assert.equal(body.stageId, 4);
     assert.equal(body.assignedUserId, 5);
     assert.equal(body.estimatedTime, 2);
     assert.equal(body.dueDate, "2026-04-01");
@@ -361,6 +365,30 @@ describe("create_work_item", () => {
   it("does not include projectId in body", async () => {
     await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Task" });
     assert.equal(lastBody().projectId, undefined);
+  });
+
+  it("issues a PATCH to set stageId after creation when stageId is provided", async () => {
+    const requests = [];
+    globalThis.fetch = async (url, opts) => {
+      requests.push({ url, opts });
+      return { ok: true, status: 200, json: async () => ({ workItemId: 10, title: "Task" }) };
+    };
+    await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Task", stageId: 3 });
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].opts.method, "POST");
+    assert.equal(requests[1].opts.method, "PATCH");
+    assert.match(requests[1].url, /workitems\/10/);
+    assert.equal(JSON.parse(requests[1].opts.body).stageId, 3);
+  });
+
+  it("does not issue a PATCH when stageId is not provided", async () => {
+    const requests = [];
+    globalThis.fetch = async (url, opts) => {
+      requests.push({ url, opts });
+      return { ok: true, status: 200, json: async () => ({ workItemId: 10 }) };
+    };
+    await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Task" });
+    assert.equal(requests.length, 1);
   });
 
   it("sends Authorization header", async () => {

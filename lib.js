@@ -379,9 +379,13 @@ export async function handleTool(name, args) {
     case "get_work_item":
       return hnpRequest(`/projects/${args.projectId}/workitems/${args.workItemId}`);
     case "create_work_item": {
-      const { projectId, boardId, ...body } = args;
+      const { projectId, boardId, stageId, ...body } = args;
       if (!body.importanceLevelId) body.importanceLevelId = 3;
-      return hnpRequest(`/projects/${projectId}/workitems?boardId=${boardId}`, "POST", body);
+      const item = await hnpRequest(`/projects/${projectId}/workitems?boardId=${boardId}`, "POST", body);
+      if (stageId) {
+        return hnpRequest(`/projects/${projectId}/workitems/${item.workItemId}`, "PATCH", { stageId });
+      }
+      return item;
     }
     case "update_work_item": {
       const { projectId, workItemId, ...body } = args;
