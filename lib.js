@@ -48,10 +48,11 @@ export const TOOLS = [
     description: "Create a new project",
     inputSchema: {
       type: "object",
-      required: ["name"],
+      required: ["name", "costMetric"],
       properties: {
         name: { type: "string" },
         description: { type: "string" },
+        costMetric: { type: "string", description: "Cost metric: 'points' or 'hours'" },
       },
     },
   },
@@ -105,6 +106,18 @@ export const TOOLS = [
       },
     },
   },
+  {
+    name: "delete_board",
+    description: "Delete a board permanently",
+    inputSchema: {
+      type: "object",
+      required: ["projectId", "boardId"],
+      properties: {
+        projectId: { type: "number" },
+        boardId: { type: "number" },
+      },
+    },
+  },
   // ── Milestones ────────────────────────────────────────────────────────────
   {
     name: "list_milestones",
@@ -145,20 +158,8 @@ export const TOOLS = [
     },
   },
   {
-    name: "close_milestone",
-    description: "Close (complete) a milestone",
-    inputSchema: {
-      type: "object",
-      required: ["projectId", "milestoneId"],
-      properties: {
-        projectId: { type: "number" },
-        milestoneId: { type: "number" },
-      },
-    },
-  },
-  {
-    name: "reopen_milestone",
-    description: "Reopen a closed milestone",
+    name: "delete_milestone",
+    description: "Delete a milestone permanently",
     inputSchema: {
       type: "object",
       required: ["projectId", "milestoneId"],
@@ -330,7 +331,7 @@ export async function handleTool(name, args) {
     case "get_project":
       return hnpRequest(`/projects/${args.projectId}`);
     case "create_project":
-      return hnpRequest("/projects", "POST", { name: args.name, description: args.description });
+      return hnpRequest("/projects", "POST", { name: args.name, description: args.description, costMetric: args.costMetric });
     case "update_project": {
       const { projectId, ...body } = args;
       return hnpRequest(`/projects/${projectId}`, "PATCH", body);
@@ -345,6 +346,8 @@ export async function handleTool(name, args) {
       const { projectId, ...body } = args;
       return hnpRequest(`/projects/${projectId}/boards`, "POST", body);
     }
+    case "delete_board":
+      return hnpRequest(`/projects/${args.projectId}/boards/${args.boardId}`, "DELETE");
 
     // Milestones
     case "list_milestones":
@@ -355,16 +358,8 @@ export async function handleTool(name, args) {
       const { projectId, ...body } = args;
       return hnpRequest(`/projects/${projectId}/milestones`, "POST", body);
     }
-    case "close_milestone":
-      return hnpRequest(
-        `/projects/${args.projectId}/milestones/${args.milestoneId}/close`,
-        "POST"
-      );
-    case "reopen_milestone":
-      return hnpRequest(
-        `/projects/${args.projectId}/milestones/${args.milestoneId}/reopen`,
-        "POST"
-      );
+    case "delete_milestone":
+      return hnpRequest(`/projects/${args.projectId}/milestones/${args.milestoneId}`, "DELETE");
 
     // Work Items
     case "list_work_items": {

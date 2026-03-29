@@ -33,9 +33,12 @@ POST /projects
 ```json
 {
   "name": "My Game",
+  "costMetric": "points",
   "description": "Optional description"
 }
 ```
+
+Required: `name`, `costMetric`. `costMetric` must be `"points"` or `"hours"`.
 
 ### Update project
 ```
@@ -74,6 +77,12 @@ POST /projects/{projectId}/boards
 ```
 `milestoneId` is optional.
 
+### Delete board
+```
+DELETE /projects/{projectId}/boards/{boardId}
+```
+Returns `200`.
+
 ---
 
 ## Milestones
@@ -102,17 +111,11 @@ POST /projects/{projectId}/milestones
 ```
 `startDate` and `endDate` are ISO 8601 strings and optional.
 
-### Close milestone
+### Delete milestone
 ```
-POST /projects/{projectId}/milestones/{milestoneId}/close
+DELETE /projects/{projectId}/milestones/{milestoneId}
 ```
-No body. Returns `204 No Content`.
-
-### Reopen milestone
-```
-POST /projects/{projectId}/milestones/{milestoneId}/reopen
-```
-No body. Returns `204 No Content`.
+Returns `200`.
 
 ---
 

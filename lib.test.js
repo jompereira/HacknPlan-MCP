@@ -74,21 +74,22 @@ describe("create_project", () => {
   beforeEach(() => mockFetch());
 
   it("sends POST to /projects", async () => {
-    await handleTool("create_project", { name: "My Game" });
+    await handleTool("create_project", { name: "My Game", costMetric: "points" });
     assert.equal(lastRequest.opts.method, "POST");
     assert.equal(lastURL().pathname, "/v0/projects");
   });
 
-  it("sends name and description in body", async () => {
-    await handleTool("create_project", { name: "My Game", description: "A fun game" });
+  it("sends name, costMetric and description in body", async () => {
+    await handleTool("create_project", { name: "My Game", costMetric: "hours", description: "A fun game" });
     const body = lastBody();
     assert.equal(body.name, "My Game");
+    assert.equal(body.costMetric, "hours");
     assert.equal(body.description, "A fun game");
   });
 
-  it("sends undefined description when omitted", async () => {
-    await handleTool("create_project", { name: "My Game" });
-    assert.equal(lastBody().name, "My Game");
+  it("sends costMetric in body", async () => {
+    await handleTool("create_project", { name: "My Game", costMetric: "points" });
+    assert.equal(lastBody().costMetric, "points");
   });
 });
 
@@ -212,32 +213,17 @@ describe("create_milestone", () => {
   });
 });
 
-describe("close_milestone", () => {
+describe("delete_milestone", () => {
   beforeEach(() => mock204());
 
-  it("sends POST to /projects/{projectId}/milestones/{milestoneId}/close", async () => {
-    await handleTool("close_milestone", { projectId: 42, milestoneId: 3 });
-    assert.equal(lastRequest.opts.method, "POST");
-    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3/close");
+  it("sends DELETE to /projects/{projectId}/milestones/{milestoneId}", async () => {
+    await handleTool("delete_milestone", { projectId: 42, milestoneId: 3 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3");
   });
 
   it("returns null for 204 response", async () => {
-    const result = await handleTool("close_milestone", { projectId: 42, milestoneId: 3 });
-    assert.equal(result, null);
-  });
-});
-
-describe("reopen_milestone", () => {
-  beforeEach(() => mock204());
-
-  it("sends POST to /projects/{projectId}/milestones/{milestoneId}/reopen", async () => {
-    await handleTool("reopen_milestone", { projectId: 42, milestoneId: 3 });
-    assert.equal(lastRequest.opts.method, "POST");
-    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3/reopen");
-  });
-
-  it("returns null for 204 response", async () => {
-    const result = await handleTool("reopen_milestone", { projectId: 42, milestoneId: 3 });
+    const result = await handleTool("delete_milestone", { projectId: 42, milestoneId: 3 });
     assert.equal(result, null);
   });
 });
@@ -459,6 +445,21 @@ describe("update_work_item", () => {
     assert.deepEqual(body.tags, ["v2"]);
     assert.equal(body.priorityId, 4);
     assert.equal(body.isCompleted, true);
+  });
+});
+
+describe("delete_board", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}/boards/{boardId}", async () => {
+    await handleTool("delete_board", { projectId: 42, boardId: 7 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/7");
+  });
+
+  it("returns null for 204 response", async () => {
+    const result = await handleTool("delete_board", { projectId: 42, boardId: 7 });
+    assert.equal(result, null);
   });
 });
 
