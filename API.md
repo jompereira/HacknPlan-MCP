@@ -168,6 +168,7 @@ Required: `boardId` (query param), `title`, `importanceLevelId`.
 `isStory`: `true` for user stories, `false` for tasks (default).
 `parentStoryId`: ID of the parent story when creating a sub-task.
 `estimatedTime` is in hours.
+**Note:** `stageId` is silently ignored by the API on POST. To set the stage, issue a PATCH immediately after creation (the MCP handler does this automatically).
 
 ### Update work item
 ```

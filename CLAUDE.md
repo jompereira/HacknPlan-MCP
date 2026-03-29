@@ -23,7 +23,9 @@ The server is split across two files:
 
 **Resource hierarchy in HacknPlan:** Projects → Boards / Milestones → Work Items. Most endpoints are scoped under `/projects/{projectId}/...`.
 
-**Creating work items:** `boardId` is a query param (`?boardId=...`), not in the body. `importanceLevelId` is required by the API (defaults to `3` / Normal in the handler). Use `list_importance_levels` to get project-specific values.
+**Creating work items:** `boardId` is a query param (`?boardId=...`), not in the body. `importanceLevelId` is required by the API (defaults to `3` / Normal in the handler). `stageId` is silently ignored by the API on POST — the handler automatically issues a follow-up PATCH when `stageId` is provided. Use `list_importance_levels` to get project-specific values.
+
+**Creating projects:** `costMetric` is required (`"points"` or `"hours"`). There is no delete project endpoint in the API.
 
 **Rate limit:** 5 calls/second (HacknPlan public beta constraint).
 
