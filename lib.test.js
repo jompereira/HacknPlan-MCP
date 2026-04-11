@@ -12,18 +12,26 @@ let lastRequest;
 function mockFetch(responseOverride = {}) {
   globalThis.fetch = async (url, opts) => {
     lastRequest = { url, opts };
+    // Resolve the json value once so both json() and text() return the same data
+    const jsonFn = responseOverride.json ?? (() => ({ id: 1 }));
+    const jsonData = await jsonFn();
+    // text() must return the JSON-serialised body so hnpRequest can parse it
+    const textData = responseOverride.text ?? JSON.stringify(jsonData);
     return {
       ok: true,
       status: 200,
-      json: async () => responseOverride.json ?? { id: 1 },
-      text: async () => responseOverride.text ?? "",
+      json: async () => jsonData,
+      text: async () => textData,
       ...responseOverride,
     };
   };
 }
 
 function mock204() {
-  mockFetch({ ok: true, status: 204, json: async () => null, text: async () => "" });
+  globalThis.fetch = async (url, opts) => {
+    lastRequest = { url, opts };
+    return { ok: true, status: 204, json: async () => null, text: async () => "" };
+  };
 }
 
 function lastBody() {
@@ -319,7 +327,7 @@ describe("create_work_item", () => {
     const requests = [];
     globalThis.fetch = async (url, opts) => {
       requests.push({ url, opts });
-      return { ok: true, status: 200, json: async () => ({ workItemId: 1 }) };
+      return { ok: true, status: 200, json: async () => ({ workItemId: 1 }), text: async () => JSON.stringify({ workItemId: 1 }) };
     };
     await handleTool("create_work_item", {
       projectId: 1,
@@ -357,7 +365,7 @@ describe("create_work_item", () => {
     const requests = [];
     globalThis.fetch = async (url, opts) => {
       requests.push({ url, opts });
-      return { ok: true, status: 200, json: async () => ({ workItemId: 10, title: "Task" }) };
+      return { ok: true, status: 200, json: async () => ({ workItemId: 10, title: "Task" }), text: async () => JSON.stringify({ workItemId: 10, title: "Task" }) };
     };
     await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Task", stageId: 3 });
     assert.equal(requests.length, 2);
@@ -371,7 +379,7 @@ describe("create_work_item", () => {
     const requests = [];
     globalThis.fetch = async (url, opts) => {
       requests.push({ url, opts });
-      return { ok: true, status: 200, json: async () => ({ workItemId: 10 }) };
+      return { ok: true, status: 200, json: async () => ({ workItemId: 10 }), text: async () => JSON.stringify({ workItemId: 10 }) };
     };
     await handleTool("create_work_item", { projectId: 42, boardId: 7, title: "Task" });
     assert.equal(requests.length, 1);
@@ -431,7 +439,7 @@ describe("update_work_item", () => {
       estimatedTime: 8,
       dueDate: "2026-05-01",
       tags: ["v2"],
-      priorityId: 4,
+      importanceLevelId: 4,
       isCompleted: true,
     });
     const body = lastBody();
@@ -443,7 +451,7 @@ describe("update_work_item", () => {
     assert.equal(body.estimatedTime, 8);
     assert.equal(body.dueDate, "2026-05-01");
     assert.deepEqual(body.tags, ["v2"]);
-    assert.equal(body.priorityId, 4);
+    assert.equal(body.importanceLevelId, 4);
     assert.equal(body.isCompleted, true);
   });
 });
@@ -533,6 +541,1121 @@ describe("get_current_user", () => {
     await handleTool("get_current_user", {});
     assert.equal(lastRequest.opts.method, "GET");
     assert.equal(lastURL().pathname, "/v0/users/me");
+  });
+});
+
+// ── New Project endpoints ──────────────────────────────────────────────────────
+
+describe("delete_project", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}", async () => {
+    await handleTool("delete_project", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42");
+  });
+
+  it("returns null for 204 response", async () => {
+    const result = await handleTool("delete_project", { projectId: 42 });
+    assert.equal(result, null);
+  });
+});
+
+describe("close_project", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends POST to /projects/{projectId}/closure", async () => {
+    await handleTool("close_project", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/closure");
+  });
+});
+
+describe("reopen_project", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}/closure", async () => {
+    await handleTool("reopen_project", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/closure");
+  });
+});
+
+describe("get_project_metrics", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/metrics", async () => {
+    await handleTool("get_project_metrics", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/metrics");
+  });
+});
+
+describe("change_project_owner", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends PUT to /projects/{projectId}/owner", async () => {
+    await handleTool("change_project_owner", { projectId: 42, userId: 7 });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/owner");
+  });
+
+  it("sends userId in body", async () => {
+    await handleTool("change_project_owner", { projectId: 42, userId: 7 });
+    assert.equal(lastBody().userId, 7);
+  });
+});
+
+// ── New Board endpoints ────────────────────────────────────────────────────────
+
+describe("list_boards with includeClosed", () => {
+  beforeEach(() => mockFetch());
+
+  it("omits includeClosed when not provided", async () => {
+    await handleTool("list_boards", { projectId: 42 });
+    assert.equal(lastURL().searchParams.get("includeClosed"), null);
+  });
+
+  it("passes includeClosed=true as query param", async () => {
+    await handleTool("list_boards", { projectId: 42, includeClosed: true });
+    assert.equal(lastURL().searchParams.get("includeClosed"), "true");
+  });
+});
+
+describe("update_board", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends PATCH to /projects/{projectId}/boards/{boardId}", async () => {
+    await handleTool("update_board", { projectId: 42, boardId: 7, name: "New Name" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/7");
+  });
+
+  it("does not include projectId or boardId in body", async () => {
+    await handleTool("update_board", { projectId: 42, boardId: 7, name: "New Name" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.boardId, undefined);
+    assert.equal(body.name, "New Name");
+  });
+});
+
+describe("delete_board with removeWorkItems", () => {
+  beforeEach(() => mock204());
+
+  it("omits removeWorkItems when not provided", async () => {
+    await handleTool("delete_board", { projectId: 42, boardId: 7 });
+    assert.equal(lastURL().searchParams.get("removeWorkItems"), null);
+  });
+
+  it("passes removeWorkItems=true as query param", async () => {
+    await handleTool("delete_board", { projectId: 42, boardId: 7, removeWorkItems: true });
+    assert.equal(lastURL().searchParams.get("removeWorkItems"), "true");
+  });
+});
+
+describe("close_board", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends POST to /projects/{projectId}/boards/{boardId}/closure", async () => {
+    await handleTool("close_board", { projectId: 42, boardId: 7 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/7/closure");
+  });
+});
+
+describe("reopen_board", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}/boards/{boardId}/closure", async () => {
+    await handleTool("reopen_board", { projectId: 42, boardId: 7 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/7/closure");
+  });
+});
+
+describe("get_board_metrics", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/boards/{boardId}/metrics", async () => {
+    await handleTool("get_board_metrics", { projectId: 42, boardId: 7 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/7/metrics");
+  });
+});
+
+// ── New Milestone endpoints ────────────────────────────────────────────────────
+
+describe("get_milestone with includeBoards", () => {
+  beforeEach(() => mockFetch());
+
+  it("omits includeBoards when not provided", async () => {
+    await handleTool("get_milestone", { projectId: 42, milestoneId: 3 });
+    assert.equal(lastURL().searchParams.get("includeBoards"), null);
+  });
+
+  it("passes includeBoards=true as query param", async () => {
+    await handleTool("get_milestone", { projectId: 42, milestoneId: 3, includeBoards: true });
+    assert.equal(lastURL().searchParams.get("includeBoards"), "true");
+  });
+});
+
+describe("update_milestone", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends PATCH to /projects/{projectId}/milestones/{milestoneId}", async () => {
+    await handleTool("update_milestone", { projectId: 42, milestoneId: 3, name: "Beta" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3");
+  });
+
+  it("does not include projectId or milestoneId in body", async () => {
+    await handleTool("update_milestone", { projectId: 42, milestoneId: 3, name: "Beta" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.milestoneId, undefined);
+    assert.equal(body.name, "Beta");
+  });
+
+  it("forwards optional date fields in body", async () => {
+    await handleTool("update_milestone", {
+      projectId: 42,
+      milestoneId: 3,
+      startDate: "2026-05-01",
+      endDate: "2026-07-31",
+    });
+    const body = lastBody();
+    assert.equal(body.startDate, "2026-05-01");
+    assert.equal(body.endDate, "2026-07-31");
+  });
+});
+
+describe("delete_milestone with query params", () => {
+  beforeEach(() => mock204());
+
+  it("omits deleteBoards and deleteWorkItems when not provided", async () => {
+    await handleTool("delete_milestone", { projectId: 42, milestoneId: 3 });
+    assert.equal(lastURL().searchParams.get("deleteBoards"), null);
+    assert.equal(lastURL().searchParams.get("deleteWorkItems"), null);
+  });
+
+  it("passes deleteBoards=true as query param", async () => {
+    await handleTool("delete_milestone", { projectId: 42, milestoneId: 3, deleteBoards: true });
+    assert.equal(lastURL().searchParams.get("deleteBoards"), "true");
+  });
+
+  it("passes deleteWorkItems=true as query param", async () => {
+    await handleTool("delete_milestone", {
+      projectId: 42,
+      milestoneId: 3,
+      deleteWorkItems: true,
+    });
+    assert.equal(lastURL().searchParams.get("deleteWorkItems"), "true");
+  });
+
+  it("passes both deleteBoards and deleteWorkItems when provided", async () => {
+    await handleTool("delete_milestone", {
+      projectId: 42,
+      milestoneId: 3,
+      deleteBoards: true,
+      deleteWorkItems: true,
+    });
+    assert.equal(lastURL().searchParams.get("deleteBoards"), "true");
+    assert.equal(lastURL().searchParams.get("deleteWorkItems"), "true");
+  });
+});
+
+describe("close_milestone", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends POST to /projects/{projectId}/milestones/{milestoneId}/closure", async () => {
+    await handleTool("close_milestone", { projectId: 42, milestoneId: 3 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3/closure");
+  });
+});
+
+describe("reopen_milestone", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}/milestones/{milestoneId}/closure", async () => {
+    await handleTool("reopen_milestone", { projectId: 42, milestoneId: 3 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3/closure");
+  });
+});
+
+describe("get_milestone_metrics", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/milestones/{milestoneId}/metrics", async () => {
+    await handleTool("get_milestone_metrics", { projectId: 42, milestoneId: 3 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3/metrics");
+  });
+});
+
+// ── New Work Item endpoints ────────────────────────────────────────────────────
+
+describe("list_work_items new filter params", () => {
+  beforeEach(() => mockFetch());
+
+  it("forwards milestoneId as query param", async () => {
+    await handleTool("list_work_items", { projectId: 42, milestoneId: 5 });
+    assert.equal(lastURL().searchParams.get("milestoneId"), "5");
+  });
+
+  it("forwards importanceLevelId as query param", async () => {
+    await handleTool("list_work_items", { projectId: 42, importanceLevelId: 2 });
+    assert.equal(lastURL().searchParams.get("importanceLevelId"), "2");
+  });
+
+  it("forwards parentStoryId as query param", async () => {
+    await handleTool("list_work_items", { projectId: 42, parentStoryId: 10 });
+    assert.equal(lastURL().searchParams.get("parentStoryId"), "10");
+  });
+
+  it("forwards designElementId as query param", async () => {
+    await handleTool("list_work_items", { projectId: 42, designElementId: 3 });
+    assert.equal(lastURL().searchParams.get("designElementId"), "3");
+  });
+
+  it("forwards searchTerms as query param", async () => {
+    await handleTool("list_work_items", { projectId: 42, searchTerms: "collision bug" });
+    assert.equal(lastURL().searchParams.get("searchTerms"), "collision bug");
+  });
+
+  it("forwards sortField and sortMode as query params", async () => {
+    await handleTool("list_work_items", { projectId: 42, sortField: "title", sortMode: "asc" });
+    assert.equal(lastURL().searchParams.get("sortField"), "title");
+    assert.equal(lastURL().searchParams.get("sortMode"), "asc");
+  });
+});
+
+describe("clone_work_item", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends POST to /projects/{projectId}/workitems/{workItemId}", async () => {
+    await handleTool("clone_work_item", { projectId: 42, workItemId: 99 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/workitems/99");
+  });
+
+  it("passes boardId as query param when provided", async () => {
+    await handleTool("clone_work_item", { projectId: 42, workItemId: 99, boardId: 7 });
+    assert.equal(lastURL().searchParams.get("boardId"), "7");
+  });
+
+  it("omits boardId query param when not provided", async () => {
+    await handleTool("clone_work_item", { projectId: 42, workItemId: 99 });
+    assert.equal(lastURL().searchParams.get("boardId"), null);
+  });
+});
+
+// ── Categories CRUD ────────────────────────────────────────────────────────────
+
+describe("create_category", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends POST to /projects/{projectId}/categories", async () => {
+    await handleTool("create_category", { projectId: 42, name: "Art" });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/categories");
+  });
+
+  it("sends name in body and excludes projectId", async () => {
+    await handleTool("create_category", { projectId: 42, name: "Art" });
+    const body = lastBody();
+    assert.equal(body.name, "Art");
+    assert.equal(body.projectId, undefined);
+  });
+});
+
+describe("get_category", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/categories/{categoryId}", async () => {
+    await handleTool("get_category", { projectId: 42, categoryId: 5 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/categories/5");
+  });
+});
+
+describe("update_category", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends PATCH to /projects/{projectId}/categories/{categoryId}", async () => {
+    await handleTool("update_category", { projectId: 42, categoryId: 5, name: "Updated Art" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/categories/5");
+  });
+
+  it("does not include projectId or categoryId in body", async () => {
+    await handleTool("update_category", { projectId: 42, categoryId: 5, name: "Updated Art" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.categoryId, undefined);
+    assert.equal(body.name, "Updated Art");
+  });
+});
+
+describe("delete_category", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}/categories/{categoryId}", async () => {
+    await handleTool("delete_category", { projectId: 42, categoryId: 5 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/categories/5");
+  });
+
+  it("returns null for 204 response", async () => {
+    const result = await handleTool("delete_category", { projectId: 42, categoryId: 5 });
+    assert.equal(result, null);
+  });
+});
+
+// ── Stages CRUD ────────────────────────────────────────────────────────────────
+
+describe("create_stage", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends POST to /projects/{projectId}/stages", async () => {
+    await handleTool("create_stage", { projectId: 42, name: "In Review" });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/stages");
+  });
+
+  it("sends name in body and excludes projectId", async () => {
+    await handleTool("create_stage", { projectId: 42, name: "In Review" });
+    const body = lastBody();
+    assert.equal(body.name, "In Review");
+    assert.equal(body.projectId, undefined);
+  });
+});
+
+describe("get_stage", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/stages/{stageId}", async () => {
+    await handleTool("get_stage", { projectId: 42, stageId: 8 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/stages/8");
+  });
+});
+
+describe("update_stage", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends PATCH to /projects/{projectId}/stages/{stageId}", async () => {
+    await handleTool("update_stage", { projectId: 42, stageId: 8, name: "Done" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/stages/8");
+  });
+
+  it("does not include projectId or stageId in body", async () => {
+    await handleTool("update_stage", { projectId: 42, stageId: 8, name: "Done" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.stageId, undefined);
+    assert.equal(body.name, "Done");
+  });
+});
+
+describe("delete_stage", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}/stages/{stageId}", async () => {
+    await handleTool("delete_stage", { projectId: 42, stageId: 8 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/stages/8");
+  });
+
+  it("returns null for 204 response", async () => {
+    const result = await handleTool("delete_stage", { projectId: 42, stageId: 8 });
+    assert.equal(result, null);
+  });
+});
+
+// ── Importance Levels CRUD ─────────────────────────────────────────────────────
+
+describe("create_importance_level", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends POST to /projects/{projectId}/importancelevels", async () => {
+    await handleTool("create_importance_level", { projectId: 42, name: "Critical" });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/importancelevels");
+  });
+
+  it("sends name in body and excludes projectId", async () => {
+    await handleTool("create_importance_level", { projectId: 42, name: "Critical" });
+    const body = lastBody();
+    assert.equal(body.name, "Critical");
+    assert.equal(body.projectId, undefined);
+  });
+});
+
+describe("get_importance_level", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/importancelevels/{importanceLevelId}", async () => {
+    await handleTool("get_importance_level", { projectId: 42, importanceLevelId: 3 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/importancelevels/3");
+  });
+});
+
+describe("update_importance_level", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends PATCH to /projects/{projectId}/importancelevels/{importanceLevelId}", async () => {
+    await handleTool("update_importance_level", {
+      projectId: 42,
+      importanceLevelId: 3,
+      name: "Medium",
+    });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/importancelevels/3");
+  });
+
+  it("does not include projectId or importanceLevelId in body", async () => {
+    await handleTool("update_importance_level", {
+      projectId: 42,
+      importanceLevelId: 3,
+      name: "Medium",
+    });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.importanceLevelId, undefined);
+    assert.equal(body.name, "Medium");
+  });
+});
+
+describe("delete_importance_level", () => {
+  beforeEach(() => mock204());
+
+  it("sends DELETE to /projects/{projectId}/importancelevels/{importanceLevelId}", async () => {
+    await handleTool("delete_importance_level", { projectId: 42, importanceLevelId: 3 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/importancelevels/3");
+  });
+
+  it("returns null for 204 response", async () => {
+    const result = await handleTool("delete_importance_level", {
+      projectId: 42,
+      importanceLevelId: 3,
+    });
+    assert.equal(result, null);
+  });
+});
+
+// ── Users ──────────────────────────────────────────────────────────────────────
+
+describe("get_project_user", () => {
+  beforeEach(() => mockFetch());
+
+  it("sends GET to /projects/{projectId}/users/{userId}", async () => {
+    await handleTool("get_project_user", { projectId: 42, userId: 7 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/users/7");
+  });
+});
+
+// ── Full-replace (PUT) variants ────────────────────────────────────────────────
+
+describe("replace_project", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}", async () => {
+    await handleTool("replace_project", { projectId: 42, name: "New", costMetric: "points" });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42");
+  });
+  it("sends body without projectId", async () => {
+    await handleTool("replace_project", { projectId: 42, name: "New", costMetric: "points" });
+    const body = lastBody();
+    assert.equal(body.name, "New");
+    assert.equal(body.projectId, undefined);
+  });
+});
+
+describe("replace_board", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/boards/{boardId}", async () => {
+    await handleTool("replace_board", { projectId: 42, boardId: 7, name: "New" });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/7");
+  });
+  it("body excludes projectId and boardId", async () => {
+    await handleTool("replace_board", { projectId: 42, boardId: 7, name: "New" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.boardId, undefined);
+    assert.equal(body.name, "New");
+  });
+});
+
+describe("replace_milestone", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/milestones/{milestoneId}", async () => {
+    await handleTool("replace_milestone", { projectId: 42, milestoneId: 3, name: "New" });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/milestones/3");
+  });
+});
+
+// ── Default board ──────────────────────────────────────────────────────────────
+
+describe("set_default_board", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/boards/default", async () => {
+    await handleTool("set_default_board", { projectId: 42, boardId: 7 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/default");
+  });
+  it("sends boardId in body", async () => {
+    await handleTool("set_default_board", { projectId: 42, boardId: 7 });
+    assert.equal(lastBody().boardId, 7);
+  });
+});
+
+describe("clear_default_board", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/boards/default", async () => {
+    await handleTool("clear_default_board", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/boards/default");
+  });
+});
+
+// ── Work Item Attachments ──────────────────────────────────────────────────────
+
+describe("list_work_item_attachments", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/workitems/{workItemId}/attachments", async () => {
+    await handleTool("list_work_item_attachments", { projectId: 42, workItemId: 9 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/workitems/9/attachments");
+  });
+});
+
+describe("get_work_item_attachment", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/workitems/{workItemId}/attachments/{attachmentId}", async () => {
+    await handleTool("get_work_item_attachment", { projectId: 42, workItemId: 9, attachmentId: 3 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/workitems/9/attachments/3");
+  });
+});
+
+describe("delete_work_item_attachment", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/workitems/{workItemId}/attachments/{attachmentId}", async () => {
+    await handleTool("delete_work_item_attachment", { projectId: 42, workItemId: 9, attachmentId: 3 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/workitems/9/attachments/3");
+  });
+});
+
+// ── User management ────────────────────────────────────────────────────────────
+
+describe("add_project_user", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/users", async () => {
+    await handleTool("add_project_user", { projectId: 42, userId: 7 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/users");
+  });
+  it("sends userId in body, excludes projectId", async () => {
+    await handleTool("add_project_user", { projectId: 42, userId: 7 });
+    const body = lastBody();
+    assert.equal(body.userId, 7);
+    assert.equal(body.projectId, undefined);
+  });
+});
+
+describe("update_project_user", () => {
+  beforeEach(() => mockFetch());
+  it("sends PATCH to /projects/{projectId}/users/{userId}", async () => {
+    await handleTool("update_project_user", { projectId: 42, userId: 7, isAdmin: true });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/users/7");
+  });
+  it("body excludes projectId and userId", async () => {
+    await handleTool("update_project_user", { projectId: 42, userId: 7, isAdmin: true });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.userId, undefined);
+    assert.equal(body.isAdmin, true);
+  });
+});
+
+describe("replace_project_user", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/users/{userId}", async () => {
+    await handleTool("replace_project_user", { projectId: 42, userId: 7 });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/users/7");
+  });
+});
+
+describe("add_team_to_project", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/teams", async () => {
+    await handleTool("add_team_to_project", { projectId: 42, teamId: 5 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/teams");
+  });
+  it("sends teamId in body", async () => {
+    await handleTool("add_team_to_project", { projectId: 42, teamId: 5 });
+    assert.equal(lastBody().teamId, 5);
+  });
+});
+
+// ── Project Roles ──────────────────────────────────────────────────────────────
+
+describe("list_project_roles", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/roles", async () => {
+    await handleTool("list_project_roles", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/roles");
+  });
+});
+
+describe("create_project_role", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/roles with name in body", async () => {
+    await handleTool("create_project_role", { projectId: 42, name: "Artist" });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/roles");
+    assert.equal(lastBody().name, "Artist");
+  });
+});
+
+describe("get_project_role", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/roles/{roleId}", async () => {
+    await handleTool("get_project_role", { projectId: 42, roleId: 3 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/roles/3");
+  });
+});
+
+describe("update_project_role", () => {
+  beforeEach(() => mockFetch());
+  it("sends PATCH to /projects/{projectId}/roles/{roleId}", async () => {
+    await handleTool("update_project_role", { projectId: 42, roleId: 3, name: "Senior Artist" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/roles/3");
+  });
+  it("body excludes projectId and roleId", async () => {
+    await handleTool("update_project_role", { projectId: 42, roleId: 3, name: "Senior" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.roleId, undefined);
+  });
+});
+
+describe("replace_project_role", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/roles/{roleId}", async () => {
+    await handleTool("replace_project_role", { projectId: 42, roleId: 3, name: "Lead Artist" });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/roles/3");
+  });
+});
+
+describe("delete_project_role", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/roles/{roleId}", async () => {
+    await handleTool("delete_project_role", { projectId: 42, roleId: 3 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/roles/3");
+  });
+});
+
+// ── Project Tags ───────────────────────────────────────────────────────────────
+
+describe("list_project_tags", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/tags", async () => {
+    await handleTool("list_project_tags", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/tags");
+  });
+});
+
+describe("create_project_tag", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/tags with name in body", async () => {
+    await handleTool("create_project_tag", { projectId: 42, name: "bug" });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/tags");
+    assert.equal(lastBody().name, "bug");
+  });
+});
+
+describe("update_project_tag", () => {
+  beforeEach(() => mockFetch());
+  it("sends PATCH to /projects/{projectId}/tags/{tagId}", async () => {
+    await handleTool("update_project_tag", { projectId: 42, tagId: 5, name: "bug-fix" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/tags/5");
+  });
+  it("body excludes projectId and tagId", async () => {
+    await handleTool("update_project_tag", { projectId: 42, tagId: 5, name: "bug-fix" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.tagId, undefined);
+  });
+});
+
+describe("replace_project_tag", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/tags/{tagId}", async () => {
+    await handleTool("replace_project_tag", { projectId: 42, tagId: 5, name: "bug-fix" });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/tags/5");
+  });
+});
+
+describe("delete_project_tag", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/tags/{tagId}", async () => {
+    await handleTool("delete_project_tag", { projectId: 42, tagId: 5 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/tags/5");
+  });
+});
+
+// ── Design Elements ────────────────────────────────────────────────────────────
+
+describe("list_design_elements", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/designelements", async () => {
+    await handleTool("list_design_elements", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements");
+  });
+  it("forwards typeId filter as query param", async () => {
+    await handleTool("list_design_elements", { projectId: 42, typeId: 3 });
+    assert.equal(lastURL().searchParams.get("typeId"), "3");
+  });
+});
+
+describe("create_design_element", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/designelements", async () => {
+    await handleTool("create_design_element", { projectId: 42, name: "Combat System", typeId: 1 });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements");
+  });
+  it("sends name and typeId in body, excludes projectId", async () => {
+    await handleTool("create_design_element", { projectId: 42, name: "Combat System", typeId: 1 });
+    const body = lastBody();
+    assert.equal(body.name, "Combat System");
+    assert.equal(body.typeId, 1);
+    assert.equal(body.projectId, undefined);
+  });
+});
+
+describe("get_design_element", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/designelements/{designElementId}", async () => {
+    await handleTool("get_design_element", { projectId: 42, designElementId: 8 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8");
+  });
+});
+
+describe("update_design_element", () => {
+  beforeEach(() => mockFetch());
+  it("sends PATCH to /projects/{projectId}/designelements/{designElementId}", async () => {
+    await handleTool("update_design_element", { projectId: 42, designElementId: 8, name: "Updated" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8");
+  });
+  it("body excludes projectId and designElementId", async () => {
+    await handleTool("update_design_element", { projectId: 42, designElementId: 8, name: "Updated" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.designElementId, undefined);
+  });
+});
+
+describe("replace_design_element", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/designelements/{designElementId}", async () => {
+    await handleTool("replace_design_element", { projectId: 42, designElementId: 8, name: "New", typeId: 1 });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8");
+  });
+});
+
+describe("delete_design_element", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/designelements/{designElementId}", async () => {
+    await handleTool("delete_design_element", { projectId: 42, designElementId: 8 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8");
+  });
+});
+
+describe("get_design_element_metrics", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/designelements/{designElementId}/metrics", async () => {
+    await handleTool("get_design_element_metrics", { projectId: 42, designElementId: 8 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/metrics");
+  });
+});
+
+// ── Design Element Attachments ─────────────────────────────────────────────────
+
+describe("list_design_element_attachments", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to .../designelements/{designElementId}/attachments", async () => {
+    await handleTool("list_design_element_attachments", { projectId: 42, designElementId: 8 });
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/attachments");
+  });
+});
+
+describe("get_design_element_attachment", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to .../designelements/{designElementId}/attachments/{attachmentId}", async () => {
+    await handleTool("get_design_element_attachment", { projectId: 42, designElementId: 8, attachmentId: 2 });
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/attachments/2");
+  });
+});
+
+describe("delete_design_element_attachment", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to .../designelements/{designElementId}/attachments/{attachmentId}", async () => {
+    await handleTool("delete_design_element_attachment", { projectId: 42, designElementId: 8, attachmentId: 2 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/attachments/2");
+  });
+});
+
+// ── Design Element Comments ────────────────────────────────────────────────────
+
+describe("list_design_element_comments", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to .../designelements/{designElementId}/comments", async () => {
+    await handleTool("list_design_element_comments", { projectId: 42, designElementId: 8 });
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/comments");
+  });
+});
+
+describe("create_design_element_comment", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to .../designelements/{designElementId}/comments", async () => {
+    await handleTool("create_design_element_comment", { projectId: 42, designElementId: 8, text: "Looks good" });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/comments");
+    assert.equal(lastBody().text, "Looks good");
+  });
+});
+
+describe("update_design_element_comment", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to .../designelements/{designElementId}/comments/{commentId}", async () => {
+    await handleTool("update_design_element_comment", { projectId: 42, designElementId: 8, commentId: 1, text: "Updated" });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/comments/1");
+    assert.equal(lastBody().text, "Updated");
+  });
+});
+
+describe("delete_design_element_comment", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to .../designelements/{designElementId}/comments/{commentId}", async () => {
+    await handleTool("delete_design_element_comment", { projectId: 42, designElementId: 8, commentId: 1 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelements/8/comments/1");
+  });
+});
+
+// ── Design Element Types ───────────────────────────────────────────────────────
+
+describe("list_design_element_types", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/designelementtypes", async () => {
+    await handleTool("list_design_element_types", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelementtypes");
+  });
+});
+
+describe("create_design_element_type", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/designelementtypes", async () => {
+    await handleTool("create_design_element_type", { projectId: 42, name: "Mechanic" });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelementtypes");
+    assert.equal(lastBody().name, "Mechanic");
+  });
+});
+
+describe("get_design_element_type", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/designelementtypes/{designElementTypeId}", async () => {
+    await handleTool("get_design_element_type", { projectId: 42, designElementTypeId: 2 });
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelementtypes/2");
+  });
+});
+
+describe("update_design_element_type", () => {
+  beforeEach(() => mockFetch());
+  it("sends PATCH to /projects/{projectId}/designelementtypes/{designElementTypeId}", async () => {
+    await handleTool("update_design_element_type", { projectId: 42, designElementTypeId: 2, name: "Core Mechanic" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelementtypes/2");
+  });
+  it("body excludes projectId and designElementTypeId", async () => {
+    await handleTool("update_design_element_type", { projectId: 42, designElementTypeId: 2, name: "Core" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.designElementTypeId, undefined);
+  });
+});
+
+describe("replace_design_element_type", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/designelementtypes/{designElementTypeId}", async () => {
+    await handleTool("replace_design_element_type", { projectId: 42, designElementTypeId: 2, name: "Core" });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelementtypes/2");
+  });
+});
+
+describe("delete_design_element_type", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/designelementtypes/{designElementTypeId}", async () => {
+    await handleTool("delete_design_element_type", { projectId: 42, designElementTypeId: 2 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/designelementtypes/2");
+  });
+});
+
+// ── Events & Files ─────────────────────────────────────────────────────────────
+
+describe("list_project_events", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/events", async () => {
+    await handleTool("list_project_events", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/events");
+  });
+  it("forwards limit and offset as query params", async () => {
+    await handleTool("list_project_events", { projectId: 42, limit: 10, offset: 5 });
+    assert.equal(lastURL().searchParams.get("limit"), "10");
+    assert.equal(lastURL().searchParams.get("offset"), "5");
+  });
+});
+
+describe("list_project_files", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/files", async () => {
+    await handleTool("list_project_files", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/files");
+  });
+});
+
+describe("delete_project_file", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/files/{fileId}", async () => {
+    await handleTool("delete_project_file", { projectId: 42, fileId: 99 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/files/99");
+  });
+});
+
+describe("get_project_storage", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/storage", async () => {
+    await handleTool("get_project_storage", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/storage");
+  });
+});
+
+// ── Webhooks ───────────────────────────────────────────────────────────────────
+
+describe("list_webhook_event_types", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /webhookevents", async () => {
+    await handleTool("list_webhook_event_types", {});
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/webhookevents");
+  });
+});
+
+describe("list_webhooks", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/webhooks", async () => {
+    await handleTool("list_webhooks", { projectId: 42 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/webhooks");
+  });
+});
+
+describe("create_webhook", () => {
+  beforeEach(() => mockFetch());
+  it("sends POST to /projects/{projectId}/webhooks", async () => {
+    await handleTool("create_webhook", { projectId: 42, url: "https://example.com/hook", events: ["workitem.created"] });
+    assert.equal(lastRequest.opts.method, "POST");
+    assert.equal(lastURL().pathname, "/v0/projects/42/webhooks");
+  });
+  it("sends url and events in body, excludes projectId", async () => {
+    await handleTool("create_webhook", { projectId: 42, url: "https://example.com/hook", events: ["workitem.created"] });
+    const body = lastBody();
+    assert.equal(body.url, "https://example.com/hook");
+    assert.deepEqual(body.events, ["workitem.created"]);
+    assert.equal(body.projectId, undefined);
+  });
+});
+
+describe("get_webhook", () => {
+  beforeEach(() => mockFetch());
+  it("sends GET to /projects/{projectId}/webhooks/{webhookId}", async () => {
+    await handleTool("get_webhook", { projectId: 42, webhookId: 5 });
+    assert.equal(lastRequest.opts.method, "GET");
+    assert.equal(lastURL().pathname, "/v0/projects/42/webhooks/5");
+  });
+});
+
+describe("update_webhook", () => {
+  beforeEach(() => mockFetch());
+  it("sends PATCH to /projects/{projectId}/webhooks/{webhookId}", async () => {
+    await handleTool("update_webhook", { projectId: 42, webhookId: 5, url: "https://example.com/new" });
+    assert.equal(lastRequest.opts.method, "PATCH");
+    assert.equal(lastURL().pathname, "/v0/projects/42/webhooks/5");
+  });
+  it("body excludes projectId and webhookId", async () => {
+    await handleTool("update_webhook", { projectId: 42, webhookId: 5, url: "https://example.com/new" });
+    const body = lastBody();
+    assert.equal(body.projectId, undefined);
+    assert.equal(body.webhookId, undefined);
+  });
+});
+
+describe("replace_webhook", () => {
+  beforeEach(() => mockFetch());
+  it("sends PUT to /projects/{projectId}/webhooks/{webhookId}", async () => {
+    await handleTool("replace_webhook", { projectId: 42, webhookId: 5, url: "https://example.com/hook", events: ["workitem.created"] });
+    assert.equal(lastRequest.opts.method, "PUT");
+    assert.equal(lastURL().pathname, "/v0/projects/42/webhooks/5");
+  });
+});
+
+describe("delete_webhook", () => {
+  beforeEach(() => mock204());
+  it("sends DELETE to /projects/{projectId}/webhooks/{webhookId}", async () => {
+    await handleTool("delete_webhook", { projectId: 42, webhookId: 5 });
+    assert.equal(lastRequest.opts.method, "DELETE");
+    assert.equal(lastURL().pathname, "/v0/projects/42/webhooks/5");
   });
 });
 
